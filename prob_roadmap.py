@@ -119,56 +119,64 @@ def drawShortestPath(ctx, graphTC, src, dest):
     # as the current point minus the distance to that point
     curPt = src
     epsilon = 10E-3
+    seen = [src]
     while not curPt == dest:
         curDist, _ = graphTC[curPt][dest]
         for pt in graphTC[curPt].keys():
-            if dest in graphTC[pt].keys():
-                dist1, conn = graphTC[curPt][pt]
-                dist2, _ = graphTC[pt][dest]
-                totDist = dist1 + dist2
-                if conn and abs(curDist - totDist) < epsilon:
-                    drawLine(ctx, curPt, pt, (0.0, 0.8, 0.3))
+            dist1, conn = graphTC[curPt][pt]
+            if pt == dest:
+                if conn == True:
+                    seen += [pt]
                     curPt = pt
+                    break
+                else:
+                    continue
+            dist2, _ = graphTC[pt][dest]
+            totDist = dist1 + dist2
+            if conn and abs(curDist - totDist) < epsilon:
+                drawLine(ctx, curPt, pt, (0.0, 0.8, 0.3))
+                curPt = pt
+                seen += [curPt]
+    return seen
+
+def connectPts(graphTC, pt1, pt2, dist, direct):
+    if pt1 == pt2:
+        return
+    newDist = dist
+    newDirect = direct
+    if pt2 in graphTC[pt1].keys():
+        curDist, curDirect = graphTC[pt1][pt2]
+        if dist > curDist:
+            newDist = curDist
+            newDirect = curDirect
+    value = (newDist, newDirect)
+    graphTC[pt1][pt2] = value
+    graphTC[pt2][pt1] = value
 
 def addPoint(ctx, rects, graphTC, newPt):
     graphTC[newPt] = {}
     # First find the points it can connect to
     for pt in graphTC.keys():
+        if pt == newPt:
+            continue
         test = Link(rects, pt, newPt)
         if test:
             drawLine(ctx, pt, newPt, (0.0, 0.0, 0.0))
             dist = distance(pt, newPt)
-            graphTC[pt][newPt] = (dist, True)
-            graphTC[newPt][pt] = (dist, True)
+            connectPts(graphTC, newPt, pt, dist, True)
             # Then give it all of the points it can connect to
             for pt2 in graphTC[pt].keys():
                 dist2, _ = graphTC[pt][pt2]
-                if pt2 in graphTC[newPt].keys():
-                    prevDist, _ = graphTC[newPt][pt2]
-                    if prevDist > dist + dist2:
-                        graphTC[newPt][pt2] = (dist + dist2,
-                                               False)
-                        graphTC[pt2][newPt] = (dist + dist2,
-                                               False)
-                else:
-                    graphTC[newPt][pt2] = (dist + dist2, False)
-                    graphTC[pt2][newPt] = (dist + dist2, False)
+                connectPts(graphTC, newPt, pt2, dist + dist2, False)
     # Now update all of the other points
     # All of the points that can connect to the new point are
     # already in the list of points, so don't bother with any others
-    for pt in graphTC[newPt].keys():
+    for pt1 in graphTC[newPt].keys():
         for pt2 in graphTC[newPt].keys():
-            dist1, _ = graphTC[pt][newPt]
+            dist1, _ = graphTC[pt1][newPt]
             dist2, _ = graphTC[newPt][pt2]
             dist = dist1 + dist2
-            try:
-                prevDist, _ = graphTC[pt][pt2]
-                if dist < prevDist:
-                    graphTC[pt][pt2] = (dist, False)
-                    graphTC[pt2][pt] = (dist, False)
-            except KeyError:
-                graphTC[pt][pt2] = (dist, False)
-                graphTC[pt2][pt] = (dist, False)
+            connectPts(graphTC, pt1, pt2, dist, False)
 
 def buildPRM(rects, src, dest, xMax, yMax, numPts):
     inf = float('inf')
@@ -178,9 +186,9 @@ def buildPRM(rects, src, dest, xMax, yMax, numPts):
     # something that terminated as soon as it found a solution
     # Then I read the assignment :)
     graphTC = {}
-    graphTC[src] = {src: (0, False)}
-    graphTC[dest] = {dest: (0, False)}
     cairoObjs = createCairoImg(rects, src, dest, xMax, yMax)
+    addPoint(cairoObjs[1], rects, graphTC, src)
+    addPoint(cairoObjs[1], rects, graphTC, dest)
     if Link(rects, src, dest):
         dist = distance(src, dest)
         graphTC[src][dest] = dist
@@ -189,6 +197,7 @@ def buildPRM(rects, src, dest, xMax, yMax, numPts):
         newPt = Vector(randint(1, xMax - 1), randint(1, yMax - 1))
         if (not Clear(rects, newPt)) or newPt in graphTC.keys():
             continue
+        addPoint(cairoObjs[1], rects, graphTC, newPt)
     for pt in graphTC.keys():
         drawPt(cairoObjs[1], pt, (1.0, 0.0, 0.0))
     return (cairoObjs, graphTC)
