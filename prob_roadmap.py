@@ -89,87 +89,109 @@ def createCairoImg(rects, src, dest, xMax, yMax):
     rmCtx.translate(0, imYDim)
     rmCtx.scale(imScale, -imScale)
     rmCtx.paint()
-    rmCtx.set_line_width(0.2)
-    rmCtx.set_source_rgb(0.0, 1.0, 0.0)
-    rmCtx.arc(dest.x, dest.y, 0.5, 0, 2 * pi)
-    rmCtx.stroke()
-    rmCtx.set_source_rgb(0.0, 0.0, 1.0)
-    rmCtx.arc(src.x, src.y, 0.5, 0, 2 * pi)
-    rmCtx.stroke()
-    rmCtx.set_source_rgb(0.0, 0.0, 0.0)
+    rmCtx.set_line_width(0.1)
     for r in rects:
+        rmCtx.set_source_rgb(0.0, 0.0, 0.0)
         rmCtx.rectangle(r.xMin, r.yMin, r.xMax - r.xMin, r.yMax - r.yMin)
         rmCtx.stroke()
-    return (rmBmp, rmSurf, rmCtx)
+        rmCtx.set_source_rgb(0.4, 0.4, 0.4)
+        rmCtx.rectangle(r.xMin, r.yMin, r.xMax - r.xMin, r.yMax - r.yMin)
+        rmCtx.fill()
+    return (rmSurf, rmCtx)
 
-def drawCairoLine(cairoObj, pt1, pt2):
-    rmCtx = cairoObj[2]
-    rmCtx.set_source_rgb(0.0, 0.0, 0.0)
-    rmCtx.move_to(pt1.x, pt1.y)
-    rmCtx.line_to(pt2.x, pt2.y)
-    rmCtx.stroke()
+def drawLine(ctx, pt1, pt2, rgbVal):
+    ctx.set_source_rgb(rgbVal[0], rgbVal[1], rgbVal[2])
+    ctx.move_to(pt1.x, pt1.y)
+    ctx.line_to(pt2.x, pt2.y)
+    ctx.stroke()
 
-def drawCairoPt(cairoObj, pt):
-    rmCtx = cairoObj[2]
-    rmCtx.set_source_rgb(1.0, 0.0, 0.0)
-    rmCtx.arc(pt.x, pt.y, 0.5, 0, 2 * pi)
-    rmCtx.stroke()
+def drawPt(ctx, pt, rgbVal):
+    ctx.set_source_rgb(rgbVal[0], rgbVal[1], rgbVal[2])
+    ctx.arc(pt.x, pt.y, 0.5, 0, 2 * pi)
+    ctx.stroke()
+
+def drawShortestPath(ctx, graphTC, src, dest):
+    if not dest in graphTC[src].keys():
+        return
+    # To compute the shortest path given a transitive closure,
+    # just look at all neighboring points and choose the one
+    # which has the same distance to the destination
+    # as the current point minus the distance to that point
+    curPt = src
+    epsilon = 10E-3
+    while not curPt == dest:
+        curDist, _ = graphTC[curPt][dest]
+        for pt in graphTC[curPt].keys():
+            if dest in graphTC[pt].keys():
+                dist1, conn = graphTC[curPt][pt]
+                dist2, _ = graphTC[pt][dest]
+                totDist = dist1 + dist2
+                if conn and abs(curDist - totDist) < epsilon:
+                    drawLine(ctx, curPt, pt, (0.0, 0.8, 0.3))
+                    curPt = pt
+
+def addPoint(ctx, rects, graphTC, newPt):
+    graphTC[newPt] = {}
+    # First find the points it can connect to
+    for pt in graphTC.keys():
+        test = Link(rects, pt, newPt)
+        if test:
+            drawLine(ctx, pt, newPt, (0.0, 0.0, 0.0))
+            dist = distance(pt, newPt)
+            graphTC[pt][newPt] = (dist, True)
+            graphTC[newPt][pt] = (dist, True)
+            # Then give it all of the points it can connect to
+            for pt2 in graphTC[pt].keys():
+                dist2, _ = graphTC[pt][pt2]
+                if pt2 in graphTC[newPt].keys():
+                    prevDist, _ = graphTC[newPt][pt2]
+                    if prevDist > dist + dist2:
+                        graphTC[newPt][pt2] = (dist + dist2,
+                                               False)
+                        graphTC[pt2][newPt] = (dist + dist2,
+                                               False)
+                else:
+                    graphTC[newPt][pt2] = (dist + dist2, False)
+                    graphTC[pt2][newPt] = (dist + dist2, False)
+    # Now update all of the other points
+    # All of the points that can connect to the new point are
+    # already in the list of points, so don't bother with any others
+    for pt in graphTC[newPt].keys():
+        for pt2 in graphTC[newPt].keys():
+            dist1, _ = graphTC[pt][newPt]
+            dist2, _ = graphTC[newPt][pt2]
+            dist = dist1 + dist2
+            try:
+                prevDist, _ = graphTC[pt][pt2]
+                if dist < prevDist:
+                    graphTC[pt][pt2] = (dist, False)
+                    graphTC[pt2][pt] = (dist, False)
+            except KeyError:
+                graphTC[pt][pt2] = (dist, False)
+                graphTC[pt2][pt] = (dist, False)
 
 def buildPRM(rects, src, dest, xMax, yMax, numPts):
     inf = float('inf')
     # Incremental algorithm which updates a transitive closure graph
     # Runs in O(numPts^3) time
-    # I largely did it this way because I initially wanted
+    # I did it this way because I initially wanted
     # something that terminated as soon as it found a solution
+    # Then I read the assignment :)
     graphTC = {}
-    graphTC[src] = {src: 0}
-    graphTC[dest] = {dest: 0}
-    cairoObj = createCairoImg(rects, src, dest, xMax, yMax)
+    graphTC[src] = {src: (0, False)}
+    graphTC[dest] = {dest: (0, False)}
+    cairoObjs = createCairoImg(rects, src, dest, xMax, yMax)
     if Link(rects, src, dest):
         dist = distance(src, dest)
         graphTC[src][dest] = dist
         graphTC[dest][src] = dist
     while len(graphTC) < numPts:
         newPt = Vector(randint(1, xMax - 1), randint(1, yMax - 1))
-        if not Clear(rects, newPt) or newPt in graphTC.keys():
+        if (not Clear(rects, newPt)) or newPt in graphTC.keys():
             continue
-        graphTC[newPt] = {}
-        # First find the points it can connect to
-        for pt in graphTC.keys():
-            test = Link(rects, pt, newPt)
-            if test:
-                drawCairoLine(cairoObj, pt, newPt)
-                dist = distance(pt, newPt)
-                graphTC[pt][newPt] = dist
-                graphTC[newPt][pt] = dist
-                # Then give it all of the points it can connect to
-                for pt2 in graphTC[pt].keys():
-                    try:
-                        prevDist = graphTC[newPt][pt2]
-                        if prevDist > dist + graphTC[pt][pt2]:
-                            graphTC[newPt][pt2] = dist + graphTC[pt][pt2]
-                            graphTC[pt2][newPt] = dist + graphTC[pt][pt2]
-                    except KeyError:
-                        graphTC[newPt][pt2] = dist + graphTC[pt][pt2]
-                        graphTC[pt2][newPt] = dist + graphTC[pt][pt2]
-        # Now update all of the other points
-        # All of the points that can connect to the new point are
-        # already in the list of points, so don't bother with any others
-        for pt in graphTC[newPt].keys():
-            for pt2 in graphTC[newPt].keys():
-                dist = graphTC[pt][newPt] + graphTC[newPt][pt2]
-                try:
-                    prevDist = graphTC[pt][pt2]
-                    if dist < prevDist:
-                        graphTC[pt][pt2] = dist
-                except KeyError:
-                    graphTC[pt][pt2] = dist
     for pt in graphTC.keys():
-        drawCairoPt(cairoObj, pt)
-    if dest in graphTC[src].keys():
-        return (graphTC[src][dest], cairoObj[1])
-    else:
-        return (inf, cairoObj[1])
+        drawPt(cairoObjs[1], pt, (1.0, 0.0, 0.0))
+    return (cairoObjs, graphTC)
 
 def runTest():
     rects1 = [Rect(6, 13, 14, 22), Rect(4, 12, 0, 8),
@@ -188,11 +210,16 @@ def runTest():
             avgDist = 0
             numTrials = 10
             for i in range(numTrials):
-                dist, img = buildPRM(rects, src, dest, 22, 22, n)
-                img.write_to_png(name + "_" + str(n) + "_" + str(i) + ".png")
+                cairoObjs, graphTC = buildPRM(rects, src, dest, 22, 22, n)
+                dist = float('inf')
+                if dest in graphTC[src].keys():
+                    dist, _ = graphTC[src][dest]
+                drawShortestPath(cairoObjs[1], graphTC, src, dest)
+                cairoObjs[0].write_to_png("Images/" + name + "_" + str(n) +
+                                          "_" + str(i) + ".png")
                 avgDist += dist
             avgDist /= numTrials
-            print(str(n) + " Points Average Path Length: " + str(avgDist))
+            print(str(n) + ", " + str(avgDist))
 
 if __name__ == "__main__":
     runTest()
