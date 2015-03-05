@@ -126,6 +126,7 @@ def drawShortestPath(ctx, graphTC, src, dest):
             dist1, conn = graphTC[curPt][pt]
             if pt == dest:
                 if conn == True:
+                    drawLine(ctx, curPt, pt, (0.0, 0.8, 0.3))
                     seen += [pt]
                     curPt = pt
                     break
