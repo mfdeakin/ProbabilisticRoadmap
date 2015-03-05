@@ -76,14 +76,7 @@ def distance(p1, p2):
     dy = p1.y - p2.y
     return sqrt(dx * dx + dy * dy)
 
-def buildPRM(rects, src, dest, xMax, yMax):
-    inf = float('inf')
-    # Incremental algorithm which updates a transitive closure graph
-    # Runs in O(v^3) time, where v is the required number of vertices
-    graphTC = {}
-    graphTC[src] = {src: 0}
-    graphTC[dest] = {dest: 0}
-    
+def createCairoImg(rects, src, dest, xMax, yMax):
     imScale = 32
     imXDim = imScale * xMax
     imYDim = imScale * yMax
@@ -107,33 +100,45 @@ def buildPRM(rects, src, dest, xMax, yMax):
     for r in rects:
         rmCtx.rectangle(r.xMin, r.yMin, r.xMax - r.xMin, r.yMax - r.yMin)
         rmCtx.stroke()
-    
+    return (rmBmp, rmSurf, rmCtx)
+
+def drawCairoLine(cairoObj, pt1, pt2):
+    rmCtx = cairoObj[2]
+    rmCtx.set_source_rgb(0.0, 0.0, 0.0)
+    rmCtx.move_to(pt1.x, pt1.y)
+    rmCtx.line_to(pt2.x, pt2.y)
+    rmCtx.stroke()
+
+def drawCairoPt(cairoObj, pt):
+    rmCtx = cairoObj[2]
+    rmCtx.set_source_rgb(1.0, 0.0, 0.0)
+    rmCtx.arc(pt.x, pt.y, 0.5, 0, 2 * pi)
+    rmCtx.stroke()
+
+def buildPRM(rects, src, dest, xMax, yMax, numPts):
+    inf = float('inf')
+    # Incremental algorithm which updates a transitive closure graph
+    # Runs in O(numPts^3) time
+    # I largely did it this way because I initially wanted
+    # something that terminated as soon as it found a solution
+    graphTC = {}
+    graphTC[src] = {src: 0}
+    graphTC[dest] = {dest: 0}
+    cairoObj = createCairoImg(rects, src, dest, xMax, yMax)
     if Link(rects, src, dest):
         dist = distance(src, dest)
         graphTC[src][dest] = dist
         graphTC[dest][src] = dist
-    while dest not in graphTC[src].keys():
+    while len(graphTC) < numPts:
         newPt = Vector(randint(1, xMax - 1), randint(1, yMax - 1))
         if not Clear(rects, newPt) or newPt in graphTC.keys():
             continue
-        
-        rmCtx.set_source_rgb(1.0, 0.0, 0.0)
-        rmCtx.arc(newPt.x, newPt.y, 0.5, 0, 2 * pi)
-        rmCtx.stroke()
-        
-        print("Adding Point", len(graphTC), newPt)
         graphTC[newPt] = {}
         # First find the points it can connect to
-        rmCtx.set_source_rgb(0.0, 0.0, 0.0)
         for pt in graphTC.keys():
             test = Link(rects, pt, newPt)
-            print("Linking", newPt, pt, test)
             if test:
-                
-                rmCtx.move_to(newPt.x, newPt.y)
-                rmCtx.line_to(pt.x, pt.y)
-                rmCtx.stroke()
-                
+                drawCairoLine(cairoObj, pt, newPt)
                 dist = distance(pt, newPt)
                 graphTC[pt][newPt] = dist
                 graphTC[newPt][pt] = dist
@@ -159,23 +164,35 @@ def buildPRM(rects, src, dest, xMax, yMax):
                         graphTC[pt][pt2] = dist
                 except KeyError:
                     graphTC[pt][pt2] = dist
-    print(len(graphTC))
-    print(graphTC)
-    return rmSurf
+    for pt in graphTC.keys():
+        drawCairoPt(cairoObj, pt)
+    if dest in graphTC[src].keys():
+        return (graphTC[src][dest], cairoObj[1])
+    else:
+        return (inf, cairoObj[1])
 
 def runTest():
     rects1 = [Rect(6, 13, 14, 22), Rect(4, 12, 0, 8),
               Rect(14, 22, 4, 10)]
     src1 = Vector(2, 2)
     dest1 = Vector(14, 21)
-    im1 = buildPRM(rects1, src1, dest1, 22, 22)
-    im1.write_to_png("Test_1.png")
     rects2 = [Rect(4, 16, 0, 12), Rect(6, 13, 14, 22),
               Rect(14, 22, 4, 10)]
     src2 = Vector(2, 2)
     dest2 = Vector(14, 21)
-    im2 = buildPRM(rects2, src2, dest2, 22, 22)
-    im2.write_to_png("Test_2.png")
+    problems = [("Test_1", src1, dest1, rects1),
+                ("Test_2", src2, dest2, rects2)]
+    for name, src, dest, rects in problems:
+        print(name)
+        for n in range(1, 128):
+            avgDist = 0
+            numTrials = 10
+            for i in range(numTrials):
+                dist, img = buildPRM(rects, src, dest, 22, 22, n)
+                img.write_to_png(name + "_" + str(n) + "_" + str(i) + ".png")
+                avgDist += dist
+            avgDist /= numTrials
+            print(str(n) + " Points Average Path Length: " + str(avgDist))
 
 if __name__ == "__main__":
     runTest()
